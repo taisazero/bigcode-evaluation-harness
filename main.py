@@ -186,6 +186,11 @@ def parse_args():
         action="store_true",
         help="Don't run generation but benchmark groundtruth (useful for debugging)",
     )
+    parser.add_argument(
+        "--use_cfg_generation",
+        action="store_true",
+        help="Use Classifier-Free Guidance generation for generation tasks",
+    )
     return parser.parse_args()
 
 

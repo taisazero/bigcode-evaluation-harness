@@ -218,6 +218,65 @@ def _parse_instruction(code, instruction_tokens):
     return code[idx + shift :]
 
 
+def inner = model.model
+layers = model.model.layers
+
+def isclose(a, b, atol=1e-3):
+    return abs(a - b) < atol
+
+
+def generate(tokenizer, model, inner, prompt, negative_prompt, **kwargs):
+    prompt_tok = tokenizer(prompt)["input_ids"]
+    negative_tok = tokenizer(negative_prompt)["input_ids"]
+
+    generated_tok = []
+    max_length = kwargs.get("max_length", 100)
+    apply_to_layer = kwargs.get("apply_to_layer", 10)
+    verbose = kwargs.get("verbose", False)
+    cfg = kwargs.get("cfg", 2.0)
+    temp = kwargs.get("temp", 1.0)
+    past_kv = None
+    neg_past_kv = None
+    hidden_state_patch = None
+
+    def func(x, y):
+        if verbose:
+            print("Called!")
+        return x + (1 - cfg) * y
+
+    for i in range(max_length):
+        if not isclose(cfg, 1.0):
+            tok = negative_tok if i == 0 else generated_tok[-1:]
+            neg_output = inner(input_ids=torch.tensor([tok], dtype=torch.int64, device=_device), past_key_values=neg_past_kv, use_cache=True, stop_at=apply_to_layer)
+            if verbose:
+                print(neg_output[0].shape)
+                #print(neg_output[1])
+
+            hidden_state_patch = {
+                "layer": apply_to_layer,
+                "func": func,
+                "delta": neg_output[0][:, - 1 - i :],
+            }
+            neg_past_kv = neg_output[1]
+
+        tok = prompt_tok if i == 0 else generated_tok[-1:]
+        if not isclose(cfg, 1.0):
+            output = model(input_ids=torch.tensor([tok], dtype=torch.int64, device=_device), past_key_values=past_kv, use_cache=True, hidden_state_patch=hidden_state_patch)
+        else:
+            output = model(input_ids=torch.tensor([tok], dtype=torch.int64, device=_device), past_key_values=past_kv, use_cache=True)
+        
+        if len(output.logits.shape) < 3:
+            logits = output.logits[-1] * 1./temp  # no batching
+        else:
+            logits = output.logits[-1, -1] * 1./temp
+        past_kv = output.past_key_values
+        probs = F.softmax(logits, dim=-1)
+        generated_tok.append(torch.multinomial(probs, num_samples=1).squeeze().item())
+        if verbose:
+            print(tokenizer.decode(generated_tok))
+
+    return tokenizer.decode(generated_tok)
+
 def complete_code(
     task,
     accelerator,
@@ -231,6 +290,7 @@ def complete_code(
     instruction_tokens=None,
     postprocess=True,
     is_wrapped=False,
+    use_cfg_generation=False,
     **gen_kwargs,
 ):
     """Generate multiple codes for each task in the dataset using multiple GPUs with accelerate.
@@ -238,7 +298,7 @@ def complete_code(
     [p_0_0, p_0_1, ..., p_0_nc-1, p_1_0, ..., p_nt-1_nc-1] where nc is the number of copies of the prompt,
     and nt is the number of tasks. nc is such that num_samples(for each task)= nc * batch_size
     """
-
+    # use_cfg_generation
     gen_token_dict = defaultdict(list)  # dict of list of generated tokens
     for step, batch in tqdm(
         enumerate(dataloader),

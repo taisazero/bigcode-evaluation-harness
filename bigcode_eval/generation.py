@@ -123,7 +123,15 @@ def parallel_generations(task, dataset, accelerator, model, tokenizer, n_tasks, 
     else:
         # model.to() is not supported for 8bit and 4bit models
         model, ds_loader = accelerator.prepare(model, ds_loader)
-
+    
+    if "use_cfg_generation" not in args:
+        args.use_cfg_generation = False
+    #TODO: for use_cfg_generation, simply pass negative_prompt_ids to model.generate and          
+    # guidance_scale (`float`):
+            # The guidance scale for classifier free guidance (CFG). CFG is enabled by setting `guidance_scale > 1`.
+            # Higher guidance scale encourages the model to generate samples that are more closely linked to the input
+            # prompt, usually at the expense of poorer quality.
+    # https://github.com/huggingface/transformers/commit/d533465150532b0c5de167b574e59f64c68b1154#diff-d23b812af8462833ad280d968f3e6e2ee7558bacfc2716cdde44a07bead5e065
     generations = complete_code(
         task,
         accelerator,
@@ -137,6 +145,7 @@ def parallel_generations(task, dataset, accelerator, model, tokenizer, n_tasks, 
         instruction_tokens=instruction_tokens,
         postprocess=args.postprocess,
         is_wrapped=is_loaded_in_8bit or is_loaded_in_4bit,
+        use_cfg_generation=args.use_cfg_generation,
         **gen_kwargs,
     )
     return generations
